@@ -2,7 +2,7 @@
 - name: Ubuntu | Aggiorna APT e pacchetti
   hosts: ubuntu
   become: true
-  gather_facts: true
+  gather_facts: false
 
   pre_tasks:
     - name: Verifica che il sistema sia Ubuntu
