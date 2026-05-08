@@ -1,0 +1,33 @@
+---
+- name: Rocky | Installa pacchetti base
+  hosts: rocky
+  become: true
+  gather_facts: true
+
+  vars:
+    rocky_base_packages:
+      - ca-certificates
+      - curl
+      - git
+      - jq
+      - rsync
+      - tmux
+      - unzip
+      - vim-enhanced
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Rocky Linux
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Rocky"
+        fail_msg: "Questo playbook va eseguito solo su Rocky Linux."
+
+  tasks:
+    - name: Aggiorna cache DNF
+      ansible.builtin.dnf:
+        update_cache: true
+
+    - name: Installa pacchetti base
+      ansible.builtin.dnf:
+        name: "{{ rocky_base_packages }}"
+        state: present

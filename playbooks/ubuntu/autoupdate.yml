@@ -1,0 +1,67 @@
+---
+- name: Ubuntu | Configura aggiornamenti automatici
+  hosts: ubuntu
+  become: true
+  gather_facts: true
+
+  vars:
+    autoupdate_reboot: false
+    autoupdate_reboot_time: "03:30"
+    autoupdate_remove_unused_dependencies: true
+    autoupdate_ubuntu_allowed_origins:
+      - "${distro_id}:${distro_codename}-security"
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Ubuntu"
+        fail_msg: "Questo playbook va eseguito solo su Ubuntu."
+
+  tasks:
+    - name: Installa unattended-upgrades
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        update_cache: true
+        cache_valid_time: 3600
+        state: present
+
+    - name: Abilita aggiornamenti automatici APT
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+
+    - name: Configura unattended-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          #clear Unattended-Upgrade::Allowed-Origins;
+          Unattended-Upgrade::Allowed-Origins {
+          {% for origin in autoupdate_ubuntu_allowed_origins %}
+              "{{ origin }}";
+          {% endfor %}
+          };
+          Unattended-Upgrade::Remove-Unused-Dependencies "{{ autoupdate_remove_unused_dependencies | ternary('true', 'false') }}";
+          Unattended-Upgrade::Automatic-Reboot "{{ autoupdate_reboot | ternary('true', 'false') }}";
+          Unattended-Upgrade::Automatic-Reboot-Time "{{ autoupdate_reboot_time }}";
+
+    - name: Abilita timer apt-daily
+      ansible.builtin.service:
+        name: apt-daily.timer
+        enabled: true
+        state: started
+
+    - name: Abilita timer apt-daily-upgrade
+      ansible.builtin.service:
+        name: apt-daily-upgrade.timer
+        enabled: true
+        state: started

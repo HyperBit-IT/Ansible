@@ -1,0 +1,77 @@
+---
+- name: Ubuntu | Installa Unbound
+  hosts: ubuntu
+  become: true
+  gather_facts: true
+
+  vars:
+    unbound_interfaces:
+      - 127.0.0.1
+      - ::1
+    unbound_access_controls:
+      - 127.0.0.0/8 allow
+      - ::1 allow
+    unbound_manage_resolv_conf: false
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Ubuntu"
+        fail_msg: "Questo playbook va eseguito solo su Ubuntu."
+
+  tasks:
+    - name: Aggiorna la cache APT
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Installa Unbound
+      ansible.builtin.apt:
+        name: unbound
+        state: present
+
+    - name: Configura Unbound come resolver locale
+      ansible.builtin.copy:
+        dest: /etc/unbound/unbound.conf.d/local-resolver.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          server:
+          {% for item in unbound_interfaces %}
+              interface: {{ item }}
+          {% endfor %}
+          {% for item in unbound_access_controls %}
+              access-control: {{ item }}
+          {% endfor %}
+              hide-identity: yes
+              hide-version: yes
+              harden-glue: yes
+              harden-dnssec-stripped: yes
+              qname-minimisation: yes
+              prefetch: yes
+      notify: Riavvia Unbound
+
+    - name: Usa Unbound in resolv.conf se richiesto
+      ansible.builtin.copy:
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          nameserver 127.0.0.1
+          options edns0 trust-ad
+      when: unbound_manage_resolv_conf | bool
+
+    - name: Abilita e avvia Unbound
+      ansible.builtin.service:
+        name: unbound
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Riavvia Unbound
+      ansible.builtin.service:
+        name: unbound
+        state: restarted

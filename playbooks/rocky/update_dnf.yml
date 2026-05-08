@@ -1,0 +1,26 @@
+---
+- name: Rocky | Aggiorna DNF e pacchetti
+  hosts: rocky
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Rocky Linux
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Rocky"
+        fail_msg: "Questo playbook va eseguito solo su Rocky Linux."
+
+  tasks:
+    - name: Aggiorna cache DNF
+      ansible.builtin.dnf:
+        update_cache: true
+
+    - name: Aggiorna pacchetti installati
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+
+    - name: Rimuove dipendenze non piu necessarie
+      ansible.builtin.dnf:
+        autoremove: true

@@ -1,0 +1,136 @@
+---
+- name: Rocky | Prepara webhost con Caddy
+  hosts: rocky
+  become: true
+  gather_facts: true
+
+  vars:
+    caddy_site_address: ":80"
+    caddy_site_root: /var/www/caddy
+    caddy_site_index_title: "Caddy webhost"
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Rocky Linux
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Rocky"
+        fail_msg: "Questo playbook va eseguito solo su Rocky Linux."
+
+  tasks:
+    - name: Installa plugin DNF per COPR
+      ansible.builtin.dnf:
+        name:
+          - dnf-plugins-core
+          - firewalld
+        state: present
+
+    - name: Abilita repository COPR Caddy
+      ansible.builtin.command:
+        cmd: dnf -y copr enable @caddy/caddy
+        creates: /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:group_caddy:caddy.repo
+
+    - name: Installa Caddy
+      ansible.builtin.dnf:
+        name: caddy
+        update_cache: true
+        state: present
+
+    - name: Crea document root
+      ansible.builtin.file:
+        path: "{{ caddy_site_root }}"
+        state: directory
+        owner: caddy
+        group: caddy
+        mode: "0755"
+
+    - name: Pubblica pagina iniziale minima
+      ansible.builtin.copy:
+        dest: "{{ caddy_site_root }}/index.html"
+        owner: caddy
+        group: caddy
+        mode: "0644"
+        content: |
+          <!doctype html>
+          <html lang="it">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{{ caddy_site_index_title }}</title>
+          </head>
+          <body>
+            <h1>{{ caddy_site_index_title }}</h1>
+            <p>{{ inventory_hostname }}</p>
+          </body>
+          </html>
+
+    - name: Configura Caddyfile
+      ansible.builtin.copy:
+        dest: /etc/caddy/Caddyfile
+        owner: root
+        group: caddy
+        mode: "0640"
+        content: |
+          {{ caddy_site_address }} {
+              root * {{ caddy_site_root }}
+              encode gzip zstd
+              file_server
+          }
+      notify:
+        - Valida configurazione Caddy
+        - Ricarica Caddy
+
+    - name: Abilita e avvia Caddy
+      ansible.builtin.service:
+        name: caddy
+        enabled: true
+        state: started
+
+    - name: Abilita firewalld
+      ansible.builtin.service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Verifica regola firewall HTTP
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --query-service=http
+      register: firewalld_http
+      changed_when: false
+      failed_when: false
+
+    - name: Consenti HTTP su firewalld
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --add-service=http
+      when: firewalld_http.rc != 0
+      changed_when: true
+      notify: Ricarica firewalld
+
+    - name: Verifica regola firewall HTTPS
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --query-service=https
+      register: firewalld_https
+      changed_when: false
+      failed_when: false
+
+    - name: Consenti HTTPS su firewalld
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --add-service=https
+      when: firewalld_https.rc != 0
+      changed_when: true
+      notify: Ricarica firewalld
+
+  handlers:
+    - name: Valida configurazione Caddy
+      ansible.builtin.command:
+        cmd: caddy validate --config /etc/caddy/Caddyfile
+      changed_when: false
+
+    - name: Ricarica Caddy
+      ansible.builtin.service:
+        name: caddy
+        state: reloaded
+
+    - name: Ricarica firewalld
+      ansible.builtin.command:
+        cmd: firewall-cmd --reload
+      changed_when: true

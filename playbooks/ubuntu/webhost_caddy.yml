@@ -1,0 +1,145 @@
+---
+- name: Ubuntu | Prepara webhost con Caddy
+  hosts: ubuntu
+  become: true
+  gather_facts: true
+
+  vars:
+    caddy_site_address: ":80"
+    caddy_site_root: /var/www/caddy
+    caddy_site_index_title: "Caddy webhost"
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Ubuntu"
+        fail_msg: "Questo playbook va eseguito solo su Ubuntu."
+
+  tasks:
+    - name: Installa prerequisiti per repository Caddy
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - debian-archive-keyring
+          - debian-keyring
+          - gnupg
+        update_cache: true
+        cache_valid_time: 3600
+        state: present
+
+    - name: Scarica chiave repository Caddy
+      ansible.builtin.get_url:
+        url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+        dest: /tmp/caddy-stable.gpg.key
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Installa keyring repository Caddy
+      ansible.builtin.command:
+        cmd: gpg --dearmor --yes --output /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy-stable.gpg.key
+        creates: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+    - name: Imposta permessi keyring repository Caddy
+      ansible.builtin.file:
+        path: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Scarica definizione repository Caddy
+      ansible.builtin.get_url:
+        url: https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt
+        dest: /etc/apt/sources.list.d/caddy-stable.list
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Installa Caddy
+      ansible.builtin.apt:
+        name: caddy
+        update_cache: true
+        state: present
+
+    - name: Crea document root
+      ansible.builtin.file:
+        path: "{{ caddy_site_root }}"
+        state: directory
+        owner: caddy
+        group: caddy
+        mode: "0755"
+
+    - name: Pubblica pagina iniziale minima
+      ansible.builtin.copy:
+        dest: "{{ caddy_site_root }}/index.html"
+        owner: caddy
+        group: caddy
+        mode: "0644"
+        content: |
+          <!doctype html>
+          <html lang="it">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{{ caddy_site_index_title }}</title>
+          </head>
+          <body>
+            <h1>{{ caddy_site_index_title }}</h1>
+            <p>{{ inventory_hostname }}</p>
+          </body>
+          </html>
+
+    - name: Configura Caddyfile
+      ansible.builtin.copy:
+        dest: /etc/caddy/Caddyfile
+        owner: root
+        group: caddy
+        mode: "0640"
+        content: |
+          {{ caddy_site_address }} {
+              root * {{ caddy_site_root }}
+              encode gzip zstd
+              file_server
+          }
+      notify:
+        - Valida configurazione Caddy
+        - Ricarica Caddy
+
+    - name: Abilita e avvia Caddy
+      ansible.builtin.service:
+        name: caddy
+        enabled: true
+        state: started
+
+    - name: Verifica stato UFW
+      ansible.builtin.command:
+        cmd: ufw status
+      register: caddy_ufw_status
+      changed_when: false
+      failed_when: false
+
+    - name: Consenti HTTP e HTTPS su UFW se attivo
+      ansible.builtin.command:
+        cmd: "ufw allow {{ item }}/tcp"
+      register: caddy_ufw_allow
+      changed_when: "'Rule added' in caddy_ufw_allow.stdout or 'Rules updated' in caddy_ufw_allow.stdout"
+      when:
+        - caddy_ufw_status.rc == 0
+        - "'Status: active' in caddy_ufw_status.stdout"
+      loop:
+        - 80
+        - 443
+
+  handlers:
+    - name: Valida configurazione Caddy
+      ansible.builtin.command:
+        cmd: caddy validate --config /etc/caddy/Caddyfile
+      changed_when: false
+
+    - name: Ricarica Caddy
+      ansible.builtin.service:
+        name: caddy
+        state: reloaded

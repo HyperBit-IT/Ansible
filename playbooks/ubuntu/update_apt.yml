@@ -1,0 +1,27 @@
+---
+- name: Ubuntu | Aggiorna APT e pacchetti
+  hosts: ubuntu
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Ubuntu"
+        fail_msg: "Questo playbook va eseguito solo su Ubuntu."
+
+  tasks:
+    - name: Aggiorna la cache APT
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Aggiorna i pacchetti installati
+      ansible.builtin.apt:
+        upgrade: dist
+
+    - name: Rimuove pacchetti non piu necessari
+      ansible.builtin.apt:
+        autoremove: true
+        autoclean: true

@@ -1,0 +1,60 @@
+---
+- name: Rocky | Configura aggiornamenti automatici
+  hosts: rocky
+  become: true
+  gather_facts: true
+
+  vars:
+    autoupdate_rocky_upgrade_type: security
+    autoupdate_apply_updates: true
+    autoupdate_download_updates: true
+    autoupdate_random_sleep: 900
+
+  pre_tasks:
+    - name: Verifica che il sistema sia Rocky Linux
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Rocky"
+        fail_msg: "Questo playbook va eseguito solo su Rocky Linux."
+
+    - name: Verifica tipo aggiornamenti DNF automatici
+      ansible.builtin.assert:
+        that:
+          - autoupdate_rocky_upgrade_type in ["default", "security"]
+        fail_msg: "autoupdate_rocky_upgrade_type deve essere 'security' oppure 'default'."
+
+  tasks:
+    - name: Installa dnf-automatic
+      ansible.builtin.dnf:
+        name: dnf-automatic
+        state: present
+
+    - name: Configura tipo aggiornamenti DNF automatici
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/automatic.conf
+        regexp: "^\\s*upgrade_type\\s*="
+        line: "upgrade_type = {{ autoupdate_rocky_upgrade_type }}"
+
+    - name: Configura download aggiornamenti DNF automatici
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/automatic.conf
+        regexp: "^\\s*download_updates\\s*="
+        line: "download_updates = {{ autoupdate_download_updates | ternary('yes', 'no') }}"
+
+    - name: Configura applicazione aggiornamenti DNF automatici
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/automatic.conf
+        regexp: "^\\s*apply_updates\\s*="
+        line: "apply_updates = {{ autoupdate_apply_updates | ternary('yes', 'no') }}"
+
+    - name: Configura ritardo casuale DNF automatico
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/automatic.conf
+        regexp: "^\\s*random_sleep\\s*="
+        line: "random_sleep = {{ autoupdate_random_sleep }}"
+
+    - name: Abilita timer dnf-automatic
+      ansible.builtin.service:
+        name: dnf-automatic.timer
+        enabled: true
+        state: started
